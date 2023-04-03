@@ -119,14 +119,14 @@ for (i in c(2009, 2012, 2015)){
 q3.data <- ma.data %>%
   filter(year %in% 2009:2015) %>%
   group_by(year) %>%
-  summarise(avg_payment_partc = mean(payment_partc, na.rm = TRUE))
+  summarise(avg_ma_rate = mean(ma_rate, na.rm = TRUE))
 
 q3.plot <- q3.data %>% 
-  ggplot(aes(x = factor(year), y = avg_payment_partc)) +
+  ggplot(aes(x = factor(year), y = avg_ma_rate)) +
   geom_col(width = 0.5, fill = "dodgerblue4") +
-  geom_text(label = round(q3.data$avg_payment_partc,1), size = 3, nudge_x = 0, nudge_y = 25, check_overlap = TRUE) +
-  ylim(0,800) +
-  labs(x = "Year", y = "Average Benchmark Payment (Part C)", Title = "Average Benchmark Payment from 2009 to 2015") +
+  geom_text(label = round(q3.data$avg_ma_rate,1), size = 3, nudge_x = 0, nudge_y = 25, check_overlap = TRUE) +
+  ylim(0,1000) +
+  labs(x = "Year", y = "Average Benchmark Payment", Title = "Average Benchmark Payment from 2009 to 2015") +
   theme_bw() + theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank()) +
   theme(
     plot.title = element_text(size = 12, color = "black", hjust = 0.5),
@@ -191,9 +191,7 @@ bandwidth <- c(0.125, 0.1, 0.12, 0.13, 0.14, 0.15)
 starRating <- c(3, 3.5, 4)
 ma.rd.ls <- list()
 for (j in length(bandwidth)){
-  ma.rd.ls2 <- list()
   for (i in length(starRating)){
-    ma.rd.ls3 <- list()
     ma.rd <- ma.data.clean %>% filter(Star_Rating == starRating[i]-0.5 | Star_Rating == starRating[i])
     ma.rd.dist <- ma.rd %>% ggplot(aes(x = raw_rating)) + geom_bar(width = .025) + theme_bw() +
       labs(x = "Running Variable", y = "Number of Plans", title = "Distribution of Raw Scores") 
@@ -218,19 +216,14 @@ for (j in length(bandwidth)){
       scale_x_continuous(breaks = c(.5, 1.5), label = c("Untreated", "Treated")) +
       xlab("Running Variable") + ylab("Outcome")
     
-    ma.rd.ls3[[1]] <- ma.rd
-    ma.rd.ls3[[2]] <- ma.rd.dist
-    ma.rd.ls3[[3]] <- ma.rd.plot
-    ma.rd.ls3[[4]] <- ma.rd.est
-    ma.rd.ls3[[5]] <- ma.rd.bin.avg
-    ma.rd.ls3[[6]] <- ma.rd.plot.bin
-    names(ma.rd.ls3) <- c(paste0("ma.rd_", i), paste0("ma.rd.dist_", i), paste0("ma.rd.plot_", i), paste0("ma.rd.est_", i), paste0("ma.rd.bin.avg_", i), paste0("ma.rd.plot.bin_", i))
-    ma.rd.ls2[[i]] <- ma.rd.ls3
+    ma.rd.ls[[j]][[i]][1] <- ma.rd
+    ma.rd.ls[[j]][[i]][2] <- ma.rd.dist
+    ma.rd.ls[[j]][[i]][3] <- ma.rd.plot
+    ma.rd.ls[[j]][[i]][4] <- ma.rd.est
+    ma.rd.ls[[j]][[i]][5] <- ma.rd.bin.avg
+    ma.rd.ls[[j]][[i]][6] <- ma.rd.plot.bin
   }
-  names(ma.rd.ls2) <- paste0(rep("ma.rd.ls_SR", length(starRating)), starRating)
-  ma.rd.ls[[j]] <- ma.rd.ls2
 }
-names(ma.rd.ls) <-paste0(rep("ma.rd.ls_BW", length(bandwidth)), bandwidth)
 
 ma.rd.ls[[6]]
 
