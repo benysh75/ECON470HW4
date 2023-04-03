@@ -11,7 +11,7 @@ pacman::p_load(tidyverse, ggplot2, dplyr,
                knitr, data.table, kableExtra, tinytex, scales,
                lubridate, stringr, gdata,
                readxl, 
-               rdrobust, estimatr,
+               rdrobust, rddensity, estimatr,
                modelsummary, fixest, AER)
 
 ## Read data and set workspace for knitr ---------------------------------------
@@ -177,11 +177,7 @@ ma.data.clean <- ma.data.clean %>%
           diabetes_chol,antidepressant,bloodpressure,ra_manage,
           copd_test,betablocker,bladder,falling,appeals_timely,
           appeals_review),
-    na.rm=T)) %>%
-  select(contractid, planid, fips, avg_enrollment, first_enrolled, last_enrolled, 
-         state, county, raw_rating, partc_score,
-         avg_eligibles, avg_enrolled, premium_partc, risk_ab, Star_Rating,
-         bid, avg_ffscost, ma_rate)
+    na.rm=T)) 
 
 q5.data <- ma.data.clean %>% 
   group_by(factor(Star_Rating)) %>%
@@ -189,55 +185,21 @@ q5.data <- ma.data.clean %>%
 colnames(q5.data) <- c("Star Ratings", "Count")
 
 ## Question 6 RD, bandwidth 0.125, effect of 3-star vs 2.5 star on enrollments -
+## Question 7 Bandwidths 0.1, 0.12, 0.13, 0.14, and 0.15 -----------------------
 
-lm(formula = avg_enrollment ~ factor(Star_Rating), data = ma.data.clean)
-
-for (i in c(3, 3.5, 4)){
-  ma.rd <- ma.data.clean %>% filter(Star_Rating == i-0.5 | Star_Rating == i)
-  ma.rd.dist <- ma.rd %>% ggplot(aes(x = raw_rating)) + geom_bar(width = .025) + theme_bw() +
-    labs(x = "Running Variable", y = "Number of Plans", title = "Distribution of Raw Scores") 
-  
-  ma.rd <- ma.rd %>%
-    mutate(score = raw_rating - (i-0.25),
-           treat = (score >= 0),
-           window1 = (score >= -.175 & score <= .175),
-           window2 = (score >= -.125 & score <= .125),
-           enrollment = avg_enrollment,
-           score_treat = score*treat)
-  
-  ma.rd.plot <- rdplot(y = ma.rd$enrollment, x = ma.rd$score, binselect = "es",
-                       title = "RD Plot: Enrollment", x.label = "Summary Score", y.label = "Enrollment", masspoints = "off")
-  ma.rd.est <- rdrobust(y = ma.rd$enrollment, x = ma.rd$score, c = 0, h = 0.125, p = 1,
-                        kernel = "uniform", vce = "hc0", masspoints = "off")
-  
-  ma.rd.bin.avg <- as_tibble(ma.rd.plot$vars_bins)
-  ma.rd.plot.bin <- ma.rd.bin.avg %>% ggplot(aes(x = rdplot_mean_x, y = rdplot_mean_y)) + 
-    geom_point() + theme_bw() +
-    geom_vline(aes(xintercept = 1), linetype = 'dashed') +
-    scale_x_continuous(breaks = c(.5, 1.5), label = c("Untreated", "Treated")) +
-    xlab("Running Variable") + ylab("Outcome")
-  
-  assign(paste0("ma.rd_", i), ma.rd)
-  assign(paste0("ma.rd.dist_", i), ma.rd.dist)
-  assign(paste0("ma.rd.plot_", i), ma.rd.plot)
-  assign(paste0("ma.rd.est_", i), ma.rd.est)
-  assign(paste0("ma.rd.bin.avg_", i), ma.rd.bin.avg)
-  assign(paste0("ma.rd.plot.bin_", i), ma.rd.plot.bin)
-}
-
-q6.data <- cbind(ma.rd.est_3$coef, ma.rd.est_3.5$coef, ma.rd.est_4$coef)
-colnames(q6.data) <- c("3-Star", "3.5-Star", "4-Star")
-
-## Question 7 Bandwidhts 0.1, 0.12, 0.13, 0.14, and 0.15 -----------------------
-
-for (j in c(0.1, 0.12, 0.13, 0.14, 0.15)){
-  for (i in c(3, 3.5, 4)){
-    ma.rd <- ma.data.clean %>% filter(Star_Rating == i-0.5 | Star_Rating == i)
+bandwidth <- c(0.125, 0.1, 0.12, 0.13, 0.14, 0.15)
+starRating <- c(3, 3.5, 4)
+ma.rd.ls <- list()
+for (j in length(bandwidth)){
+  ma.rd.ls2 <- list()
+  for (i in length(starRating)){
+    ma.rd.ls3 <- list()
+    ma.rd <- ma.data.clean %>% filter(Star_Rating == starRating[i]-0.5 | Star_Rating == starRating[i])
     ma.rd.dist <- ma.rd %>% ggplot(aes(x = raw_rating)) + geom_bar(width = .025) + theme_bw() +
       labs(x = "Running Variable", y = "Number of Plans", title = "Distribution of Raw Scores") 
     
     ma.rd <-ma.rd %>%
-      mutate(score = raw_rating - (i-0.25),
+      mutate(score = raw_rating - (starRating[i]-0.25),
              treat = (score >= 0),
              window1 = (score >= -.175 & score <= .175),
              window2 = (score >= -.125 & score <= .125),
@@ -246,7 +208,7 @@ for (j in c(0.1, 0.12, 0.13, 0.14, 0.15)){
     
     ma.rd.plot <- rdplot(y = ma.rd$enrollment, x = ma.rd$score, binselect = "es",
                          title = "RD Plot: Enrollment", x.label = "Summary Score", y.label = "Enrollment", masspoints = "off")
-    ma.rd.est <- rdrobust(y = ma.rd$enrollment, x = ma.rd$score, c = 0, h = 0.125, p = 1,
+    ma.rd.est <- rdrobust(y = ma.rd$enrollment, x = ma.rd$score, c = 0, h = bandwidth[j], p = 1,
                           kernel = "uniform", vce = "hc0", masspoints = "off")
     
     ma.rd.bin.avg <- as_tibble(ma.rd.plot$vars_bins)
@@ -256,19 +218,43 @@ for (j in c(0.1, 0.12, 0.13, 0.14, 0.15)){
       scale_x_continuous(breaks = c(.5, 1.5), label = c("Untreated", "Treated")) +
       xlab("Running Variable") + ylab("Outcome")
     
-    assign(paste0("ma.rd_", i), ma.rd)
-    assign(paste0("ma.rd.dist_", i), ma.rd.dist)
-    assign(paste0("ma.rd.plot_", i), ma.rd.plot)
-    assign(paste0("ma.rd.est_", i), ma.rd.est)
-    assign(paste0("ma.rd.bin.avg_", i), ma.rd.bin.avg)
-    assign(paste0("ma.rd.plot.bin_", i), ma.rd.plot.bin)
+    ma.rd.ls3[[1]] <- ma.rd
+    ma.rd.ls3[[2]] <- ma.rd.dist
+    ma.rd.ls3[[3]] <- ma.rd.plot
+    ma.rd.ls3[[4]] <- ma.rd.est
+    ma.rd.ls3[[5]] <- ma.rd.bin.avg
+    ma.rd.ls3[[6]] <- ma.rd.plot.bin
+    names(ma.rd.ls3) <- c(paste0("ma.rd_", i), paste0("ma.rd.dist_", i), paste0("ma.rd.plot_", i), paste0("ma.rd.est_", i), paste0("ma.rd.bin.avg_", i), paste0("ma.rd.plot.bin_", i))
+    ma.rd.ls2[[i]] <- ma.rd.ls3
   }
+  names(ma.rd.ls2) <- paste0(rep("ma.rd.ls_SR", length(starRating)), starRating)
+  ma.rd.ls[[j]] <- ma.rd.ls2
 }
+names(ma.rd.ls) <-paste0(rep("ma.rd.ls_BW", length(bandwidth)), bandwidth)
 
+ma.rd.ls[[6]]
 
+q6.data <- cbind(ma.rd.est_3$coef, ma.rd.est_3.5$coef, ma.rd.est_4$coef)
+colnames(q6.data) <- c("3-Star", "3.5-Star", "4-Star")
 
+## Question 8 Manipulate the Running Variable ----------------------------------
+
+ma.rd_3_dens <- rddensity(ma.rd_3$score, c=0)
+q8.plot <- rdplotdensity(ma.rd_3_dens, ma.rd_3$score)
+
+## Question 9 HMO and Part D status as Plan Characteristics --------------------
+
+m <- lm(formula = avg_enrollment ~ factor(Star_Rating) + factor(partd) + factor(plan_type), data = ma.data.clean)
 
 ## Save data for markdown ------------------------------------------------------
 
+colnames(ma.data)
 rm(list=c("ma.data"))
 save.image("Hwk4_workspace.Rdata")
+levels(factor(ma.data.clean$plan_type))
+
+# %>%
+# select(contractid, planid, fips, avg_enrollment, first_enrolled, last_enrolled, 
+#        state, county, raw_rating, partc_score,
+#        avg_eligibles, avg_enrolled, premium_partc, risk_ab, Star_Rating,
+#        bid, avg_ffscost, ma_rate)
