@@ -60,7 +60,7 @@ q1.plot <- q1.data %>%
   ggplot(aes(x = factor(year), y = count)) +
   geom_boxplot(size = 0.5, color = "dodgerblue4", fill = "dodgerblue1", alpha = 0.25, outlier.color = "dodgerblue4", outlier.shape = NA) +
   stat_summary(fun.y = "mean", geom = "point", shape = 16, size = 4, color = "dodgerblue") +
-  labs(x = "Year", y = "Log Plan Counts by County", Title = "Distribution of Plan Counts by County from 2007 to 2015") +
+  labs(x = "Year", y = "Plan Counts by County", Title = "Distribution of Plan Counts by County from 2007 to 2015") +
   ylim(0,100) +
   theme_bw() + theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank()) +
   theme(
@@ -184,6 +184,8 @@ q4.plot <- q4.data %>%
     axis.text.x = element_text(size = 10, angle = 0, color = "black"),
     axis.text.y = element_text(size = 10, angle = 0, color = "black"))
 
+cor_bench_share <- cor(q3.data$avg_ma_rate, q4.data$avg_share)
+
 ## Question 5 Running Variable Underlying the Star Rating ----------------------
 
 ma.data.clean <- ma.data %>% ungroup() %>%
@@ -222,16 +224,16 @@ q5.data <- ma.data.clean %>%
 
 colnames(q5.data) <- c("Star Ratings", "Count")
 
-## Question 6, 7, 8 ------------------------------------------------------------
-## RD estimate of the Effect of Receiving Stars at 3.0-Star, 3.5-Star, 4.0-Star on Enrollment, bandwidth 0.125
-## Bandwidths 0.1, 0.12, 0.13, 0.14, 0.15
-## Manipulate the Running Variable
+## Question 6, 7, 8, 9 ---------------------------------------------------------
+### Q6: RD estimate of the Effect of Receiving Stars at 3.0-Star, 3.5-Star, 4.0-Star on Enrollment, bandwidth 0.125
+### Q7: Bandwidths 0.1, 0.12, 0.13, 0.14, 0.15 ---------------------------------
 
 bandwidth <- c(0.125, 0.1, 0.12, 0.13, 0.14, 0.15)
 starRating <- c(3.0, 3.5, 4.0)
 
 for (i in 1:length(bandwidth)){
   for (j in 1:length(starRating)){
+    # Data for RD Model
     cutoff <- starRating[j] - 0.25
     ma.rd.data <- ma.data.clean %>%
       filter(raw_rating >= (cutoff - bandwidth[i]),
@@ -239,17 +241,32 @@ for (i in 1:length(bandwidth)){
              Star_Rating %in% c(starRating[j] - 0.5, starRating[j])) %>%
       mutate(treat = (Star_Rating == starRating[j]),
              score = raw_rating - cutoff)
-
+    
+    # RD Model
     ma.rd.est <- lm(avg_enrollment ~ treat + score, data = ma.rd.data)
     ma.rd.est.coef <- tidy(ma.rd.est, conf.int = TRUE) %>% mutate(r = starRating[j], bw = bandwidth[i])
     
+    # Density Plot
     ma.rd_dens <- rddensity(ma.rd.data$score, c = 0)
     ma.rd_dens_plot <- rdplotdensity(ma.rd_dens, ma.rd.data$score)
     
-    assign(paste0("ma.rd.data_", bandwidth[i], "_", starRating[j]), ma.rd.data)
+    # Love Plot
+    lp.vars <- ma.data.clean %>%
+      filter((raw_rating >= (cutoff - bandwidth[i]) & Star_Rating == starRating[j] - 0.5) |
+               (raw_rating <= (cutoff + bandwidth[i]) & Star_Rating == starRating[j])) %>%
+      mutate(rounded = (Star_Rating == starRating[j])) %>% 
+      select(HMO, partd, rounded) %>%
+      filter(complete.cases(.))
+    lp.covs <- lp.vars %>% select(HMO, partd)
+    ma.rd_lp <- love.plot(bal.tab(lp.covs, treat = lp.vars$rounded), colors = "dodgerblue4") +
+      theme_bw() + theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank()) +
+      theme(plot.title = element_text(hjust = 0.5), legend.position = "none")
+    
+    # Assign Variable
     assign(paste0("ma.rd.est_", bandwidth[i], "_", starRating[j]), ma.rd.est)
     assign(paste0("ma.rd.est.coef_", bandwidth[i], "_", starRating[j]), ma.rd.est.coef)
     assign(paste0("ma.rd_dens_plot_", bandwidth[i], "_", starRating[j]), ma.rd_dens_plot)
+    assign(paste0("ma.rd_lp_", bandwidth[i], "_", starRating[j]), ma.rd_lp)
   }
 }
 
@@ -261,7 +278,7 @@ q7.data <-
         ma.rd.est.coef_0.15_3, ma.rd.est.coef_0.15_3.5, ma.rd.est.coef_0.15_4
         ) %>%
   select(term, estimate, std.error, r, bw) %>%
-  filter(term == "score") %>%
+  filter(term == "treatTRUE") %>%
   mutate(r = factor(r), bw = factor(bw))
 
 q7.plot <- q7.data %>%
@@ -270,7 +287,7 @@ q7.plot <- q7.data %>%
   geom_hline(yintercept = 0, color = "black", linetype = 2) +
   geom_errorbar(aes(x = bw, ymin = estimate - 1.96 * std.error, ymax = estimate + 1.96 * std.error), width = .1, position = position_dodge(width = 0.5)) +
   scale_color_manual(name = "Star Rating", values = c("dodgerblue1", "dodgerblue3", "dodgerblue4")) +
-  labs(x = "Bandwidth", y = "Estimate", Title = "Estimates of the Effect of Star Rating on Enrollment by Different Bandwidths") +
+  labs(x = "Bandwidth", y = "Estimate of Treatment and 95 Percent Confidence Interval", Title = "RD Estimates of the Effect of Receiving a Star Rating on Enrollment with Different Bandwidths") +
   theme_bw() + theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank()) +
   theme(
     plot.title = element_text(size = 12, color = "black", hjust = 0.5),
@@ -280,11 +297,40 @@ q7.plot <- q7.data %>%
     axis.text.x = element_text(size = 10, angle = 0, color = "black"),
     axis.text.y = element_text(size = 10, angle = 0, color = "black"))
 
+q7.data2 <- 
+  rbind(ma.rd.est.coef_0.1_3, ma.rd.est.coef_0.1_3.5, ma.rd.est.coef_0.1_4,
+        ma.rd.est.coef_0.12_3, ma.rd.est.coef_0.12_3.5, ma.rd.est.coef_0.12_4,
+        ma.rd.est.coef_0.13_3, ma.rd.est.coef_0.13_3.5, ma.rd.est.coef_0.13_4,
+        ma.rd.est.coef_0.14_3, ma.rd.est.coef_0.14_3.5, ma.rd.est.coef_0.14_4,
+        ma.rd.est.coef_0.15_3, ma.rd.est.coef_0.15_3.5, ma.rd.est.coef_0.15_4
+  ) %>%
+  select(term, estimate, std.error, r, bw) %>%
+  filter(term == "score") %>%
+  mutate(r = factor(r), bw = factor(bw))
+
+q7.plot2 <- q7.data2 %>%
+  ggplot(aes(x = bw, y = estimate, group = r, color = r)) +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_hline(yintercept = 0, color = "black", linetype = 2) +
+  geom_errorbar(aes(x = bw, ymin = estimate - 1.96 * std.error, ymax = estimate + 1.96 * std.error), width = .1, position = position_dodge(width = 0.5)) +
+  scale_color_manual(name = "Star Rating", values = c("dodgerblue1", "dodgerblue3", "dodgerblue4")) +
+  labs(x = "Bandwidth", y = "Estimate of Score and 95 Percent Confidence Interval", Title = "RD Estimates of the Effect of Receiving a Star Rating on Enrollment with Different Bandwidths") +
+  theme_bw() + theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank()) +
+  theme(
+    plot.title = element_text(size = 12, color = "black", hjust = 0.5),
+    legend.title = element_text(size = 10, color = "black"),
+    legend.position = "top",
+    axis.title = element_text(size = 10, color = "black"),
+    axis.text.x = element_text(size = 10, angle = 0, color = "black"),
+    axis.text.y = element_text(size = 10, angle = 0, color = "black"))
+
+### Q8: Manipulate the Running Variable ----------------------------------------
+
 q8.plot <- ggarrange(ma.rd_dens_plot_0.125_3$Estplot, ma.rd_dens_plot_0.125_3.5$Estplot, ma.rd_dens_plot_0.125_4$Estplot,
                      labels = c("0.125-BW, 3.0-Star", "0.125-BW, 3.5-Star", "0.125-BW, 4.0-Star"),
                      font.label = list(size = 12, color = "black"),
-                     hjust = -0.75,
-                     ncol = 3, nrow = 1)
+                     hjust = 0,
+                     ncol = 1, nrow = 3)
 
 q8.plot2 <- ggarrange(ma.rd_dens_plot_0.1_3$Estplot, ma.rd_dens_plot_0.1_3.5$Estplot, ma.rd_dens_plot_0.1_4$Estplot,
                       ma.rd_dens_plot_0.12_3$Estplot, ma.rd_dens_plot_0.12_3.5$Estplot, ma.rd_dens_plot_0.12_4$Estplot,
@@ -293,7 +339,15 @@ q8.plot2 <- ggarrange(ma.rd_dens_plot_0.1_3$Estplot, ma.rd_dens_plot_0.1_3.5$Est
                       ma.rd_dens_plot_0.15_3$Estplot, ma.rd_dens_plot_0.15_3.5$Estplot, ma.rd_dens_plot_0.15_4$Estplot,
                       ncol = 3, nrow = 5)
 
-## Question 6, 7, 8 Alternative ------------------------------------------------
+### Q9: HMO and Part D status as Plan Characteristics --------------------------
+
+q9.plot <- ggarrange(ma.rd_lp_0.125_3, ma.rd_lp_0.125_3.5, ma.rd_lp_0.125_4,
+                     labels = c("0.125-BW, 3.0-Star", "0.125-BW, 3.5-Star", "0.125-BW, 4.0-Star"),
+                     font.label = list(size = 12, color = "black"),
+                     hjust = 0,
+                     ncol = 1, nrow = 3)
+
+## Question 6, 7, 8, 9 Alternative ---------------------------------------------
 
 bandwidth <- c(0.125, 0.1, 0.12, 0.13, 0.14, 0.15)
 starRating <- c(3.0, 3.5, 4.0)
@@ -339,47 +393,10 @@ q7.data <- cbind(ma.rd.est_0.1_3$coef, ma.rd.est_0.1_3.5$coef, ma.rd.est_0.1_4$c
                  ma.rd.est_0.15_3$coef, ma.rd.est_0.15_3.5$coef, ma.rd.est_0.15_4$coef)
 colnames(q7.data) <- rep(c("3-Star", "3.5-Star", "4-Star"), 5)
 
-## Question 9 HMO and Part D status as Plan Characteristics --------------------
-
-
-
-names(ma.rd.data_0.1_3)
-
-match.dat <- matchit(treat ~ HMO + partd, 
-                     data=ma.rd.data_0.1_3 %>% 
-                       filter(
-                              !is.na(treat), 
-                              !is.na(HMO), 
-                              !is.na(partd)),
-                     method=NULL, distance="mahalanobis")
-love.plot(match.dat, stats = c("mean.diffs"), abs = TRUE, 
-          binary = "std",
-          var.order = "unadjusted")
-
-
-
-lp.vars <- ma.data.clean %>%
-  filter(raw_rating <= 3.25 + 0.125 & Star_Rating == 3.5) %>%
-  mutate(rounded = (Star_Rating == 3.5)) %>%
-  select(HMO, partd, rounded) %>%
-  filter(complete.cases(.))
-
-lp.covs <- lp.vars %>% select(HMO, partd)
-plot.35 <- love.plot(
-  bal.tab(lp.covs, treat = lp.vars$rounded),
-  stats = c("mean.diffs"),
-  thresholds = c(m = 0),
-  abs = TRUE, 
-  binary = "std",
-  var.order = "unadjusted"
-  ) +
-  theme_bw() + theme(legend.position="none")
-
-
+ma.rd_match.dat <- matchit(treat ~ HMO + partd, data = ma.rd.data, method = NULL, distance = "mahalanobis")
+ma.rd_lp <- love.plot(ma.rd_match.dat, stats = c("mean.diffs"), abs = TRUE, binary = "std", var.order = "unadjusted")
 
 ## Save data for markdown ------------------------------------------------------
 
-colnames(ma.data)
 rm(list=c("ma.data"))
 save.image("Hwk4_workspace.Rdata")
-
