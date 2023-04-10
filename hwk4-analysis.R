@@ -48,7 +48,8 @@ q1.data <- ma.data %>%
   summarise(count = length(planid))
 
 q1.data.sum <- q1.data %>%
-  group_by(factor(year)) %>% 
+  mutate(year = factor(year)) %>%
+  group_by(year) %>% 
   summarise(`Mean` = mean(count),
             `Max` = max(count),
             `Q2` = quantile(count, 0.25),
